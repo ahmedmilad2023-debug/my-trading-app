@@ -299,16 +299,105 @@ const COINS = [
 ];
 
 // ═══════════════════════════════════════════════
+// PERSIST HELPERS — localStorage
+// ═══════════════════════════════════════════════
+const STORAGE_KEY = 'cryptoSignals_v3';
+
+function saveState() {
+  try {
+    const toSave = {
+      signals:  ST.signals,
+      history:  ST.history,
+      tpPct:    ST.tpPct,
+      slPct:    ST.slPct,
+      savedAt:  Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch(e) { console.warn('Save failed', e); }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    // Restore signals — parse dates back from strings
+    if (Array.isArray(saved.signals)) {
+      ST.signals = saved.signals.map(s => ({
+        ...s,
+        time:      s.time      ? new Date(s.time)      : new Date(),
+        closeTime: s.closeTime ? new Date(s.closeTime) : null,
+      }));
+    }
+    if (Array.isArray(saved.history)) {
+      ST.history = saved.history.map(s => ({
+        ...s,
+        time:      s.time      ? new Date(s.time)      : new Date(),
+        closeTime: s.closeTime ? new Date(s.closeTime) : null,
+      }));
+    }
+    if (saved.tpPct) { ST.tpPct = saved.tpPct; document.getElementById('v-tpPct').textContent = ST.tpPct.toFixed(1)+'%'; }
+    if (saved.slPct) { ST.slPct = saved.slPct; document.getElementById('v-slPct').textContent = ST.slPct.toFixed(2)+'%'; }
+  } catch(e) { console.warn('Load failed', e); }
+}
+
+// ═══════════════════════════════════════════════
 // STATE
 // CRITICAL: signals are IMMUTABLE once created.
 // Only status changes (active → hit-tp / hit-sl).
 // ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// PERSIST — localStorage (survives close/refresh)
+// ═══════════════════════════════════════════════
+const STORAGE_KEY = 'cryptoSignals_v3';
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      signals: ST.signals,
+      history: ST.history,
+      tpPct:   ST.tpPct,
+      slPct:   ST.slPct,
+    }));
+  } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (Array.isArray(saved.signals)) {
+      ST.signals = saved.signals.map(s => ({...s,
+        time:      s.time      ? new Date(s.time)      : new Date(),
+        closeTime: s.closeTime ? new Date(s.closeTime) : null,
+      }));
+    }
+    if (Array.isArray(saved.history)) {
+      ST.history = saved.history.map(s => ({...s,
+        time:      s.time      ? new Date(s.time)      : new Date(),
+        closeTime: s.closeTime ? new Date(s.closeTime) : null,
+      }));
+    }
+    if (saved.tpPct) {
+      ST.tpPct = saved.tpPct;
+      const el = document.getElementById('v-tpPct');
+      if (el) el.textContent = ST.tpPct.toFixed(1)+'%';
+    }
+    if (saved.slPct) {
+      ST.slPct = saved.slPct;
+      const el = document.getElementById('v-slPct');
+      if (el) el.textContent = ST.slPct.toFixed(2)+'%';
+    }
+  } catch(e) {}
+}
+
 const ST = {
   prices: {},           // live prices from Binance WS
-  signals: [],          // active + closed signals
-  history: [],          // closed signals (for display)
+  signals: [],          // active signals (persisted)
+  history: [],          // closed signals (persisted)
   activeSym: 0,
-  activeTF: '30',       // default 30min (confirmation timeframe)
+  activeTF: '30',
   tpPct: 2.0,
   slPct: 1.0,
   ws: null,
@@ -497,6 +586,7 @@ function checkTPSL(sym) {
       if (!ST.history.find(h => h.id === s.id)) ST.history.unshift(s);
     });
     ST.signals = ST.signals.filter(s => s.status === 'active');
+    saveState();  // persist immediately after close
     renderSignals();
     renderHistory();
     updateStats();
@@ -706,6 +796,7 @@ function runAnalysis() {
         closeReason: null,
       });
       newCount++;
+      saveState();  // persist new signal immediately
     });
 
     renderSignals();
@@ -917,14 +1008,19 @@ function adj(k, d) {
   ST[k] = Math.round((Math.max(lim[k][0], Math.min(lim[k][1], ST[k]+d)))*100)/100;
   document.getElementById('v-'+k).textContent =
     k==='tpPct' ? ST[k].toFixed(1)+'%' : ST[k].toFixed(2)+'%';
+  saveState();
 }
 
 // ═══════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════
 buildSymScroll();
-startWS();
+loadState();          // restore signals from localStorage FIRST
+renderSignals();      // show saved signals immediately on launch
+renderHistory();
+updateStats();
+startWS();            // then connect for live prices
 renderWatchlist();
 </script>
 </body>
-  </html>
+      </html>
